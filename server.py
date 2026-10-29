@@ -339,8 +339,11 @@ async def images_generations(req: ImageGenRequest) -> JSONResponse:
             "created": int(time.time()), "job_id": job.job_id, "state": job.state,
             "data": [], "message": "job accepted; poll /v1/jobs/{job_id}"})
 
-    item = {"url": job.url} if req.response_format != "b64_json" else {"b64_json": job.url}
-    if req.response_format == "b64_json" and job.url.startswith(("http://", "https://")):
+    if req.response_format != "b64_json":
+        item = {"url": job.url}
+    elif job.url.startswith("data:"):
+        item = {"b64_json": job.url.split(",", 1)[1]}
+    elif job.url.startswith(("http://", "https://")):
         try:
             r = httpx.get(job.url, timeout=60, follow_redirects=True,
                           headers={"User-Agent": "okhttp/4.12.0"})
@@ -348,6 +351,8 @@ async def images_generations(req: ImageGenRequest) -> JSONResponse:
             item = {"b64_json": base64.b64encode(r.content).decode()}
         except httpx.HTTPError as exc:
             raise HTTPException(502, f"cannot download result: {exc}") from exc
+    else:
+        item = {"b64_json": job.url}
     return JSONResponse({"created": int(time.time()), "job_id": job.job_id,
                          "data": [item] * max(1, req.n)})
 
