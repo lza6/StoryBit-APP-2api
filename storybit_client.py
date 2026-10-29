@@ -70,6 +70,26 @@ def aes_decrypt(blob: str, key: bytes) -> dict:
     return json.loads(unpad(cipher.decrypt(base64.b64decode(blob)), 16).decode())
 
 
+def _decrypt_or_raw(blob: str, key: bytes, raw: dict) -> dict:
+    try:
+        return aes_decrypt(blob, key)
+    except ValueError:
+        return raw
+
+
+def _raise_on_business_error(out: dict) -> None:
+    """Upstream reports business errors two ways: flat {code,msg} and the far more
+    common nested {"status": false, "data": {"code": "120", "msg": "..."}}.
+    Both must surface as UpstreamError or callers treat a failure as success."""
+    if not isinstance(out, dict):
+        return
+    if out.get("code") and out.get("msg") and out.get("status") is not False:
+        raise UpstreamError(str(out["code"]), str(out["msg"]))
+    nested = out.get("data")
+    if out.get("status") is False and isinstance(nested, dict) and nested.get("code"):
+        raise UpstreamError(str(nested["code"]), str(nested.get("msg") or ""))
+
+
 class StoryBitClient:
     """Thin transport over the app's private API. No signatures, no device id,
     no session: every call is stateless."""
@@ -134,12 +154,8 @@ class StoryBitClient:
         blob = raw.get("data") if isinstance(raw, dict) else None
         if not isinstance(blob, str):
             return raw
-        try:
-            out = aes_decrypt(blob, key)
-        except ValueError:
-            return raw
-        if isinstance(out, dict) and out.get("code") and out.get("msg"):
-            raise UpstreamError(str(out["code"]), str(out["msg"]))
+        out = _decrypt_or_raw(blob, key, raw)
+        _raise_on_business_error(out)
         return out
 
     # ------------------------------------------------------------------- AI API
@@ -167,12 +183,8 @@ class StoryBitClient:
         raw = await self._request_json("POST", url, b"".join(chunks), headers)
         blob = raw.get("data") if isinstance(raw, dict) else None
         if isinstance(blob, str):
-            try:
-                out = aes_decrypt(blob, self.cfg.key_ai)
-            except ValueError:
-                return raw
-            if isinstance(out, dict) and out.get("code") and out.get("msg"):
-                raise UpstreamError(str(out["code"]), str(out["msg"]))
+            out = _decrypt_or_raw(blob, self.cfg.key_ai, raw)
+            _raise_on_business_error(out)
             return out
         return raw
 

@@ -5,7 +5,23 @@
 
 ---
 
-## 0. 前置：先跑起来
+## 0. 先问网关「现在什么能用」
+
+```bash
+curl http://127.0.0.1:8089/v1/capabilities
+```
+
+| `state` | 含义 | 能不能接渠道 |
+|---|---|---|
+| `catalog` / `templates` = `available` | 914 个 AI 效果 + 26 个模板分类可拉 | 可以（数据类，非计费链路） |
+| `generate` = `accepted-but-queued` | `gen_i` 受理成功但 `state` 恒 `waiting` | ❌ 上游 worker 下线 |
+| `generate` = `available` | 真的出片了 | ✅ 可上生产 |
+| `upscale` = `maintenance` | 上游 `code 120` | ❌ |
+
+`/v1/models` 同样带 `status` 与 `last_job`，可直接作为健康判据。
+
+## 0.1 前置：先跑起来
+
 
 ```powershell
 cd D:\apk-analysis\storybit\2api
@@ -152,6 +168,7 @@ curl -X POST http://<new-api>/v1/images/edits \
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/health` | 存活 + RC 来源 + 上游连通 + 计数器 |
+| GET | `/v1/capabilities` | **逐能力真实状态**（generate / upscale / catalog / templates） |
 | GET | `/v1/models` | 两个虚拟模型 `storybit` / `storybit-upscale` |
 | POST | `/v1/images/generations` | OpenAI 兼容（JSON，图走 `image`/`image_url`） |
 | POST | `/v1/images/edits` | OpenAI 兼容（multipart，图走 `file`）← **new-api 用这个** |

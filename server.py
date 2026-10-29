@@ -71,6 +71,15 @@ class TTLCache:
 
 _effects_cache = TTLCache(EFFECT_TTL)
 _categories_cache = TTLCache(CATALOG_TTL)
+_upscale_probe = TTLCache(120.0)
+
+
+def _probe_jpeg() -> bytes:
+    """Tiny valid JPEG used only to ask upstream whether upscale is alive."""
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), (120, 120, 120)).save(buf, "JPEG")
+    return buf.getvalue()
 
 MOCK_EFFECTS = {
     "category_list": [
@@ -259,12 +268,59 @@ async def health() -> dict:
 
 @app.get("/v1/models")
 async def models() -> dict:
+    gen = stats.get("last_generate") or {}
+    gen_status = "available" if gen.get("done") else ("degraded" if gen else "unverified")
     return {"object": "list", "data": [
         {"id": "storybit", "object": "model", "owned_by": "snovxgames",
+         "status": gen_status, "last_job": gen or None,
          "description": "AI photo effect generation (image-to-image), effect chosen by prompt"},
         {"id": "storybit-upscale", "object": "model", "owned_by": "snovxgames",
-         "description": "server-side image upscale (upstream reports maintenance)"},
+         "status": "maintenance" if not stats.get("upscale_ok") else "available",
+         "description": "server-side image upscale"},
     ]}
+
+
+@app.get("/v1/capabilities")
+async def capabilities() -> dict:
+    """What actually works right now. Generation is judged from real job traffic
+    (we never submit a throwaway job just to probe); upscale is probed directly,
+    cached for 120 s because that call is cheap and stateless upstream."""
+    if MOCK:
+        return {"mode": "mock", "generate": {"state": "mock"},
+                "upscale": {"state": "mock"}, "catalog": {"state": "mock"}}
+
+    async def probe_upscale() -> dict:
+        try:
+            await client.upscale("6527ee586890ad39dc36e81a", _probe_jpeg(),
+                                 width=64, height=64, file_name="probe.jpg")
+            stats["upscale_ok"] = True
+            return {"state": "available"}
+        except UpstreamError as exc:
+            stats["upscale_ok"] = False
+            return {"state": "maintenance" if exc.code == "120" else "error",
+                    "code": exc.code, "message": exc.message}
+        except Exception as exc:  # noqa: BLE001
+            return {"state": "unreachable", "message": str(exc)[:200]}
+
+    upscale = await _upscale_probe.get(probe_upscale)
+    gen = stats.get("last_generate") or {}
+    gen_state = "available" if gen.get("done") else ("accepted-but-queued" if gen else "unverified")
+    try:
+        effects = flatten_effects(await get_effects())
+        catalog = {"state": "available", "effects": len(effects),
+                   "categories": len({e["category"] for e in effects})}
+    except Exception as exc:  # noqa: BLE001
+        catalog = {"state": "unreachable", "message": str(exc)[:200]}
+    return {
+        "generate": {"state": gen_state, "model": "storybit",
+                     "last_job": gen or None,
+                     "note": "gen_i 受理后 state 恒 waiting = 厂商 worker 下线"},
+        "upscale": {"model": "storybit-upscale", **upscale},
+        "catalog": catalog,
+        "templates": {"state": "available", "categories": len(
+            (await _categories_cache.get(client.categories)).get("categoryData") or [])},
+        "rc_source": cfg.source,
+    }
 
 
 @app.get("/v1/effects/categories")
@@ -333,6 +389,9 @@ async def images_generations(req: ImageGenRequest) -> JSONResponse:
             if job.done:
                 stats["jobs_completed"] += 1
 
+    stats["last_generate"] = {"job_id": job.job_id, "state": job.state,
+                              "done": job.done, "effect_id": effect_id,
+                              "at": int(time.time())}
     if not job.done:
         # upstream accepted the job but has not produced output yet
         return JSONResponse(status_code=202, content={

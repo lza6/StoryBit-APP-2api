@@ -27,6 +27,29 @@ curl http://127.0.0.1:8089/v1/effects/categories
 curl "http://127.0.0.1:8089/v1/effects?q=ghibli"
 ```
 
+## 现在到底什么能用（`GET /v1/capabilities`）
+
+不要猜，直接问网关。它按真实上游状态回答，并缓存在进程里：
+
+| 能力 | 端点 | 状态（2026-10-30 实测） |
+|---|---|---|
+| AI 效果目录 | `/v1/effects` | 🟢 **available** — 48 分类 / 914 个效果 |
+| 模板目录 | `/v1/categories` `/v1/templates` | 🟢 **available** — 26 分类，详情含 `vfx_url`/`preview_url` |
+| 生图 `storybit`（gen_i） | `/v1/images/edits` | 🟡 **accepted-but-queued** — 受理成功、`state` 恒 `waiting`（厂商 worker 下线） |
+| 放大 `storybit-upscale`（upScale_n） | `/v1/upscale` | 🔴 **maintenance** — 上游 `code 120 "Image upscale is under maintenance"` |
+
+```bash
+curl http://127.0.0.1:8089/v1/capabilities
+# {"generate":{"state":"accepted-but-queued",...},"upscale":{"state":"maintenance","code":"120"},
+#  "catalog":{"state":"available","effects":914,"categories":48},"templates":{...}}
+```
+
+`/v1/models` 也带 `status`（`available` / `degraded` / `maintenance` / `unverified`）和 `last_job`，
+方便 new-api 侧或前端一眼判断，不用去读日志。
+
+> 上游业务错误两种形状都做了识别：扁平 `{code,msg}` 与嵌套 `{"status":false,"data":{"code":"120","msg":...}}`。
+> 后者如果不处理会被当成功——本仓库早期版本踩过，已修（见 commit `fix: 上游嵌套业务错误`）。
+
 ## Demo 页
 
 浏览器打开 `http://127.0.0.1:8089/` 即为 demo（左栏选效果、上传图、点生成；右栏看返回与模板库）。
