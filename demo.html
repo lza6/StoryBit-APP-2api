@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>StoryBit 2API · Demo</title>
+<style>
+  :root{
+    --bg:#0b0d12; --panel:#141821; --line:#242b38; --fg:#e8edf6; --dim:#8b96a8;
+    --accent:#f5c451; --ok:#3ecf8e; --bad:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:14px/1.55 ui-sans-serif,system-ui,"Segoe UI",Roboto,"Helvetica Neue",sans-serif}
+  header{padding:18px 22px;border-bottom:1px solid var(--line);display:flex;
+         align-items:center;gap:14px;flex-wrap:wrap}
+  h1{font-size:16px;margin:0;letter-spacing:.3px}
+  .badge{font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);
+         color:var(--dim)}
+  .badge.ok{color:var(--ok);border-color:#1f4a37}
+  .badge.bad{color:var(--bad);border-color:#4a1f1f}
+  main{display:grid;grid-template-columns:330px 1fr;gap:0;min-height:calc(100vh - 62px)}
+  aside{border-right:1px solid var(--line);padding:16px;overflow:auto;max-height:calc(100vh - 62px)}
+  section{padding:18px 22px;overflow:auto;max-height:calc(100vh - 62px)}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--dim);margin:0 0 10px}
+  select,input,button,textarea{font:inherit;color:var(--fg);background:var(--panel);
+       border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%}
+  button{cursor:pointer;transition:.15s}
+  button:hover{border-color:#3a465c}
+  button.primary{background:var(--accent);color:#1a1408;border-color:var(--accent);font-weight:600}
+  button.primary:disabled{opacity:.45;cursor:not-allowed}
+  .row{display:flex;gap:10px}
+  .row>*{flex:1}
+  .field{margin-bottom:12px}
+  label{display:block;font-size:11px;color:var(--dim);margin-bottom:5px}
+  .effects{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+  .effect{font-size:11px;padding:6px 7px;border-radius:6px;border:1px solid var(--line);
+          cursor:pointer;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .effect.sel{border-color:var(--accent);color:var(--fg);background:#1d1a10}
+  .preview{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
+  .card{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel)}
+  .card h3{margin:0;padding:9px 12px;font-size:11px;color:var(--dim);
+           border-bottom:1px solid var(--line);font-weight:500;letter-spacing:.06em}
+  .card img{display:block;width:100%;aspect-ratio:1/1;object-fit:contain;background:#0e1117}
+  .empty{padding:44px 12px;text-align:center;color:var(--dim);font-size:12px}
+  pre{background:#0e1117;border:1px solid var(--line);border-radius:10px;padding:12px;
+      font-size:11.5px;overflow:auto;max-height:230px;color:#b9c4d6}
+  .tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+  .tabs button{width:auto;padding:6px 12px;font-size:12px;background:transparent}
+  .tabs button.on{background:var(--panel);border-color:var(--accent);color:var(--fg)}
+  .stat{font-size:11px;color:var(--dim);margin-top:8px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px}
+  .tile{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel)}
+  .tile img{width:100%;aspect-ratio:3/4;object-fit:cover;display:block;background:#0e1117}
+  .tile p{margin:0;padding:6px 8px;font-size:11px;color:var(--dim);
+          overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  @media(max-width:860px){main{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid var(--line);max-height:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>StoryBit 2API</h1>
+  <span class="badge" id="ver">v3.0.6-r1</span>
+  <span class="badge" id="health">检测中…</span>
+  <span class="badge" id="mode"></span>
+</header>
+
+<main>
+  <aside>
+    <div class="tabs">
+      <button class="on" data-tab="ai">AI 生图</button>
+      <button data-tab="cat">模板库</button>
+    </div>
+
+    <div id="pane-ai">
+      <div class="field">
+        <label>输入图片（image-to-image，必填）</label>
+        <input type="file" id="file" accept="image/*"/>
+      </div>
+      <div class="field">
+        <label>风格分类</label>
+        <select id="cat"></select>
+      </div>
+      <div class="field">
+        <label>AI 效果 <span id="effcount" class="badge">0</span></label>
+        <div class="effects" id="effects"></div>
+      </div>
+      <div class="field row">
+        <div><label>比例</label>
+          <select id="ratio">
+            <option>1:1</option><option>9:16</option><option>16:9</option>
+            <option>3:4</option><option>4:3</option>
+          </select></div>
+        <div><label>轮询上限(s)</label><input id="poll" type="number" value="60"/></div>
+      </div>
+      <button class="primary" id="go">生成</button>
+      <div class="stat" id="gen-stat"></div>
+    </div>
+
+    <div id="pane-cat" hidden>
+      <div class="field">
+        <label>模板分类</label>
+        <select id="tcat"></select>
+      </div>
+      <button class="primary" id="load-t">拉取模板</button>
+      <div class="stat" id="t-stat"></div>
+    </div>
+  </aside>
+
+  <section>
+    <div class="preview">
+      <div class="card"><h3>输入</h3><div id="in-box" class="empty">选择图片</div></div>
+      <div class="card"><h3>输出</h3><div id="out-box" class="empty">尚未生成</div></div>
+    </div>
+    <h2>响应</h2>
+    <pre id="log">等待操作…</pre>
+    <div id="tiles" class="grid" style="margin-top:18px"></div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const log = (o) => $('#log').textContent = typeof o === 'string' ? o : JSON.stringify(o, null, 2);
+let effects = [], selected = null, fileB64 = null;
+
+async function jfetch(url, opt) {
+  const r = await fetch(url, opt);
+  const text = await r.text();
+  let body; try { body = JSON.parse(text); } catch { body = text; }
+  if (!r.ok) { const e = new Error('HTTP ' + r.status); e.body = body; throw e; }
+  return body;
+}
+
+async function health() {
+  try {
+    const h = await jfetch('/health');
+    $('#health').textContent = h.status + ' · upstream:' + (h.upstream || '?');
+    $('#health').className = 'badge ' + (h.status === 'ok' ? 'ok' : 'bad');
+    $('#mode').textContent = h.mock ? 'MOCK' : 'LIVE';
+    $('#mode').className = 'badge ' + (h.mock ? '' : 'ok');
+  } catch (e) {
+    $('#health').textContent = '网关不可用';
+    $('#health').className = 'badge bad';
+  }
+}
+
+async function loadEffects() {
+  const r = await jfetch('/v1/effects/categories');
+  const sel = $('#cat'); sel.innerHTML = '';
+  r.data.forEach(c => {
+    const o = document.createElement('option');
+    o.value = c.name; o.textContent = `${c.name} (${c.count})`;
+    sel.appendChild(o);
+  });
+  const all = await jfetch('/v1/effects');
+  effects = all.data;
+  renderEffects();
+}
+
+function renderEffects() {
+  const cat = $('#cat').value;
+  const list = effects.filter(e => e.category === cat);
+  const box = $('#effects'); box.innerHTML = '';
+  $('#effcount').textContent = list.length;
+  list.forEach(e => {
+    const d = document.createElement('div');
+    d.className = 'effect' + (selected === e.effect_id ? ' sel' : '');
+    d.textContent = e.name; d.title = e.effect_id;
+    d.onclick = () => { selected = e.effect_id; renderEffects(); };
+    box.appendChild(d);
+  });
+  if (!selected && list.length) { selected = list[0].effect_id; renderEffects(); }
+}
+
+$('#file').addEventListener('change', ev => {
+  const f = ev.target.files[0]; if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    fileB64 = rd.result;
+    $('#in-box').outerHTML = `<img src="${rd.result}" id="in-box"/>`;
+  };
+  rd.readAsDataURL(f);
+});
+
+$('#go').onclick = async () => {
+  if (!fileB64) return alert('先选一张输入图');
+  const btn = $('#go'); btn.disabled = true;
+  $('#gen-stat').textContent = '提交中…';
+  const t0 = performance.now();
+  try {
+    const body = await jfetch('/v1/images/generations', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        model: 'storybit', effect_id: selected, image: fileB64.split(',')[1],
+        size: $('#ratio').value, poll_timeout: Number($('#poll').value)
+      })
+    });
+    const ms = Math.round(performance.now() - t0);
+    $('#out-box').outerHTML = '';
+    if (body.data && body.data[0]) {
+      const url = body.data[0].url || ('data:image/jpeg;base64,' + body.data[0].b64_json);
+      document.querySelector('.preview').lastElementChild.innerHTML =
+        `<h3>输出</h3><img src="${url}"/>`;
+    } else {
+      document.querySelector('.preview').lastElementChild.innerHTML =
+        `<h3>输出</h3><div class="empty">排队中 · job ${body.job_id || '-'} · state ${body.state || '-'}</div>`;
+    }
+    $('#gen-stat').textContent = `${ms}ms · ${body.job_id || ''}`;
+    log(body);
+  } catch (e) {
+    $('#gen-stat').textContent = '失败';
+    log(e.body || e.message);
+  } finally { btn.disabled = false; }
+};
+
+async function loadTemplates() {
+  const catId = $('#tcat').value;
+  $('#t-stat').textContent = '加载…';
+  try {
+    const r = await jfetch(`/v1/templates?cat_id=${encodeURIComponent(catId)}&limit=24`);
+    const list = Array.isArray(r.data) ? r.data : [];
+    const box = $('#tiles'); box.innerHTML = '';
+    list.forEach(t => {
+      const el = document.createElement('div');
+      el.className = 'tile';
+      const img = t.playback_url || t.preview_url || '';
+      el.innerHTML = `<img src="${img}" loading="lazy"/><p>${t.name || t._id}</p>`;
+      box.appendChild(el);
+    });
+    $('#t-stat').textContent = `${list.length} 个模板`;
+    log(r);
+  } catch (e) { $('#t-stat').textContent = '失败'; log(e.body || e.message); }
+}
+
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  $('#pane-ai').hidden = b.dataset.tab !== 'ai';
+  $('#pane-cat').hidden = b.dataset.tab !== 'cat';
+  $('#tiles').innerHTML = '';
+});
+
+$('#cat').onchange = () => { selected = null; renderEffects(); };
+$('#load-t').onclick = loadTemplates;
+
+(async () => {
+  await health();
+  try {
+    await loadEffects();
+    const cats = await jfetch('/v1/categories');
+    const sel = $('#tcat'); sel.innerHTML = '';
+    cats.data.forEach(c => {
+      const o = document.createElement('option');
+      o.value = c.id; o.textContent = c.name;
+      sel.appendChild(o);
+    });
+  } catch (e) { log(e.body || e.message); }
+})();
+</script>
+</body>
+</html>

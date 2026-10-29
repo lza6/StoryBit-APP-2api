@@ -1,0 +1,7 @@
+fastapi>=0.110
+uvicorn>=0.27
+httpx>=0.27
+pycryptodome>=3.20
+pillow>=10.0
+# optional, only for verify_demo.py
+# playwright>=1.40
